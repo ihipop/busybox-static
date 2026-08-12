@@ -1,0 +1,174 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64
+            platform: linux/arm64
+            dockerfile: Dockerfile.build
+          - target: armv7
+            platform: linux/arm/v7
+            dockerfile: Dockerfile.build
+          - target: armv6
+            platform: linux/arm/v6
+            dockerfile: Dockerfile.build
+          - target: x86_64
+            platform: linux/amd64
+            dockerfile: Dockerfile.build
+          - target: x86
+            platform: linux/386
+            dockerfile: Dockerfile.build
+          - target: riscv64
+            platform: linux/riscv64
+            dockerfile: Dockerfile.build
+          - target: loongarch64
+            platform: linux/loong64
+            dockerfile: Dockerfile.build-loongarch64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Enable QEMU architectures
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          image: docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 # qemu-v10.2.3-68
+
+      - name: Build toolchain image
+        run: >-
+          docker build
+          --platform "${{ matrix.platform }}"
+          --file "${{ matrix.dockerfile }}"
+          --tag "busybox-static-build:${{ matrix.target }}"
+          .
+
+      - name: Build and verify both BusyBox profiles
+        run: >-
+          docker run --rm
+          --platform "${{ matrix.platform }}"
+          --volume "$PWD:/workspace"
+          --workdir /workspace
+          "busybox-static-build:${{ matrix.target }}"
+          ./scripts/build.sh "${{ matrix.target }}"
+
+      - name: Upload verified build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: busybox-build-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            dist/busybox-full-${{ matrix.target }}
+            dist/busybox-full-${{ matrix.target }}.config
+            dist/busybox-full-${{ matrix.target }}.applets
+            dist/busybox-docker-compatible-${{ matrix.target }}
+            dist/busybox-docker-compatible-${{ matrix.target }}.config
+            dist/busybox-docker-compatible-${{ matrix.target }}.applets
+            dist/busybox-docker-compatible-${{ matrix.target }}.not-needed
+            dist/busybox-docker-official-${{ matrix.target }}.config
+            dist/busybox-${{ matrix.target }}.build-env
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified builds
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: busybox-build-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify shared configuration
+        working-directory: release
+        run: |
+          targets=(aarch64 armv7 armv6 x86_64 x86 riscv64 loongarch64)
+          canonical=${targets[0]}
+
+          for target in "${targets[@]:1}"; do
+            cmp "busybox-full-$canonical.config" "busybox-full-$target.config"
+            cmp "busybox-full-$canonical.applets" "busybox-full-$target.applets"
+            cmp "busybox-docker-official-$canonical.config" "busybox-docker-official-$target.config"
+          done
+
+          mv busybox-full-aarch64.config busybox-full.config
+          mv busybox-full-aarch64.applets busybox-full.applets
+          mv busybox-docker-official-aarch64.config busybox-docker-official.config
+          for target in "${targets[@]:1}"; do
+            rm "busybox-full-$target.config"
+            rm "busybox-full-$target.applets"
+            rm "busybox-docker-official-$target.config"
+          done
+
+          if [ -f busybox-docker-compatible-aarch64.not-needed ]; then
+            for target in "${targets[@]}"; do
+              test -f "busybox-docker-compatible-$target.not-needed"
+              cmp busybox-docker-compatible-aarch64.not-needed \
+                "busybox-docker-compatible-$target.not-needed"
+              test ! -e "busybox-docker-compatible-$target"
+              test ! -e "busybox-docker-compatible-$target.config"
+              test ! -e "busybox-docker-compatible-$target.applets"
+            done
+            rm busybox-docker-compatible-*.not-needed
+          else
+            for target in "${targets[@]}"; do
+              test ! -e "busybox-docker-compatible-$target.not-needed"
+              cmp busybox-docker-compatible-aarch64.config \
+                "busybox-docker-compatible-$target.config"
+              cmp busybox-docker-compatible-aarch64.applets \
+                "busybox-docker-compatible-$target.applets"
+            done
+            mv busybox-docker-compatible-aarch64.config busybox-docker-compatible.config
+            mv busybox-docker-compatible-aarch64.applets busybox-docker-compatible.applets
+            for target in "${targets[@]:1}"; do
+              rm "busybox-docker-compatible-$target.config"
+              rm "busybox-docker-compatible-$target.applets"
+            done
+          fi
+
+      - name: Create checksums
+        working-directory: release
+        run: |
+          targets=(aarch64 armv7 armv6 x86_64 x86 riscv64 loongarch64)
+          files=(
+            busybox-full.config busybox-full.applets
+            busybox-docker-official.config
+          )
+          for target in "${targets[@]}"; do
+            files+=("busybox-full-$target")
+            files+=("busybox-$target.build-env")
+          done
+          if [ -f busybox-docker-compatible-aarch64 ]; then
+            for target in "${targets[@]}"; do
+              files+=("busybox-docker-compatible-$target")
+            done
+            files+=(busybox-docker-compatible.config busybox-docker-compatible.applets)
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" release/*
+          --repo "$GITHUB_REPOSITORY"
+          --generate-notes
