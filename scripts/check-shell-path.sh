@@ -6,7 +6,11 @@ set -eu
 case "$1" in /*) binary=$1;; *) binary=$(pwd)/$1;; esac
 [ -x "$binary" ]
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT HUP INT TERM
+cleanup() {
+    rm -f "$work/ip" "$work/tc" "$work/brctl" "$work/printf"
+    rmdir "$work"
+}
+trap cleanup EXIT HUP INT TERM
 for name in ip tc brctl; do
     printf '#!/bin/sh\nprintf "external:%s\\n"\n' "$name" >"$work/$name"
     chmod 0755 "$work/$name"
