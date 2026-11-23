@@ -122,6 +122,7 @@ case "$profile" in
             FEATURE_INIT_COREDUMPS \
             FEATURE_WATCHDOG_OPEN_TWICE \
             FEATURE_SH_NOFORK \
+            FEATURE_SH_STANDALONE \
             LOGIN_SESSION_AS_CHILD \
             FEATURE_TLS_SHA1 \
             NUKE
@@ -132,15 +133,16 @@ case "$profile" in
         LC_ALL=C sort -c "$full_extra"
         LC_ALL=C sort -u "$docker_baseline" "$full_extra" \
             >"$validation_tmp/full.expected"
-        if [ "$(wc -l <"$validation_tmp/full.expected")" -ne 411 ]; then
-            echo "internal error: Full applet baseline is not 411 entries" >&2
+        if [ "$(wc -l <"$validation_tmp/full.expected")" -ne 410 ]; then
+            echo "internal error: Full applet baseline is not 410 tool entries" >&2
             exit 1
         fi
         if ! cmp -s "$validation_tmp/full.expected" "$applets"; then
-            echo "Full applet list differs from the audited 411-applet baseline:" >&2
+            echo "Full applet list differs from the audited 410-tool baseline:" >&2
             diff -u "$validation_tmp/full.expected" "$applets" >&2 || true
             exit 1
         fi
+        "$repo_dir/scripts/check-shell-path.sh" "$binary"
         ;;
     *)
         echo "unknown validation profile: $profile" >&2

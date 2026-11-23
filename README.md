@@ -45,7 +45,9 @@ Full and Docker-compatible use the same patched source baseline.
 
 The Full profile starts from BusyBox `allyesconfig` and retains the maximum
 practical runtime feature set for a general-purpose static musl binary. It has
-an audited baseline of exactly **411 applets**.
+an audited baseline of exactly **410 listed tools**. The BusyBox frontend
+remains callable; upstream omits its own list entry when standalone shell mode
+is disabled. No runtime tool is removed.
 
 Options that require unavailable static dependencies, build-only diagnostics,
 PAM, SELinux, locale databases, legacy RPC/utmp support, or otherwise conflict
@@ -53,7 +55,8 @@ with the static release model are disabled. The public profile also excludes:
 
 - the fake `bash` alias (`BASH_IS_ASH`), obsolete `devfsd`, and the accidental
   `rm -rf` alias `nuke`;
-- experimental applet-preference and no-fork execution paths;
+- standalone shell applet lookup, applet-preference, and no-fork execution
+  paths, so external commands follow `PATH`;
 - non-standard current-directory fallback for `source` in Ash and Hush;
 - TFTP packet debugging, init core-dump debugging, and the watchdog
   open-twice driver workaround;
@@ -61,8 +64,38 @@ with the static release model are disabled. The public profile also excludes:
 - `FEATURE_USE_BSS_TAIL`, so buffer limits and the build process remain
   deterministic across architectures without a layout-dependent second pass.
 
+Ash and Hush keep normal shell builtins such as `printf`, `echo`, and `test`.
+For external commands, Full disables `FEATURE_SH_STANDALONE`,
+`FEATURE_SH_NOFORK`, and `FEATURE_PREFER_APPLETS`: placing an independent `ip`
+binary first in `PATH` takes precedence over BusyBox's `ip` applet. The applet
+remains available explicitly as `busybox ip`. A local custom configuration can
+opt into standalone lookup when self-contained shell execution is desired, but
+that deliberately bypasses `PATH` and is outside the Full release profile.
+Docker-compatible continues to follow its pinned upstream configuration.
+
 The Full profile is an independent maximum-capability profile. It is not
 intended to reproduce Docker Official Images command behavior.
+
+### Deployment-specific choices
+
+Full provides commands, not GNU or iproute2 parameter compatibility. When
+installing applet links, preserve existing independent tools instead of
+shadowing them. Shell builtins remain builtins; for example Ash's enabled
+`sleep` builtin is distinct from external-command lookup.
+
+Release binaries are ordinary executable files. SUID support includes privilege
+dropping and configuration support; making the binary SUID is a separate
+installation decision that requires an appropriate policy. Disabling
+`FEATURE_SUID` is not a safe substitute: a SUID binary without it would retain
+privileges for all applets.
+
+The enabled `wget` OpenSSL path verifies certificates using external OpenSSL.
+If OpenSSL cannot execute, BusyBox can fall back to its internal TLS code,
+which does not implement certificate verification. Applications requiring
+verified HTTPS must provide and verify that dependency rather than infer it
+from `FEATURE_WGET_HTTPS=y`. Interactive history saving and Bash-compatible
+shell extensions are also deliberate Full features, not mandatory choices for
+every appliance.
 
 ## Docker-compatible profile
 
@@ -106,7 +139,9 @@ Every CI build must pass all of these checks before upload:
 
 - ELF is statically linked and has no program interpreter;
 - ELF class and machine match the declared release target;
-- Full matches the exact 411-applet audited baseline;
+- Full matches the exact 410-tool audited baseline and its shells prefer
+  external `ip`, `tc`, and `brctl` commands according to `PATH`, including
+  indirect `xargs` and `find -exec` execution;
 - Docker-compatible matches the exact Docker Official applet baseline;
 - Docker-compatible differs from the reconstructed upstream config only by
   Unicode symbols from the four-item allowlist;

@@ -241,6 +241,7 @@ configure_full() {
         FEATURE_INIT_COREDUMPS \
         FEATURE_WATCHDOG_OPEN_TWICE \
         FEATURE_SH_NOFORK \
+        FEATURE_SH_STANDALONE \
         LOGIN_SESSION_AS_CHILD \
         FEATURE_TLS_SHA1 \
         NUKE
@@ -277,8 +278,7 @@ configure_full() {
         ASH_SLEEP \
         ASH_HELP \
         ASH_GETOPTS \
-        ASH_CMDCMD \
-        FEATURE_SH_STANDALONE
+        ASH_CMDCMD
     do
         set_bool "$symbol" y
     done

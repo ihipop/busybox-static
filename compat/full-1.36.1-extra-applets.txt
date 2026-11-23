@@ -1,4 +1,3 @@
-busybox
 flash_eraseall
 flash_lock
 flash_unlock
