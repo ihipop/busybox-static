@@ -1,5 +1,7 @@
 # Static BusyBox
 
+Release changes and the Full/Docker-compatible shell lookup policies are documented in [CHANGELOG.md](CHANGELOG.md).
+
 This repository builds two statically linked BusyBox 1.36.1 profiles for
 common Linux architectures. GitHub Actions builds inside
 architecture-matched Alpine containers and publishes the binaries, effective
